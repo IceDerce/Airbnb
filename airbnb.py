@@ -3,47 +3,72 @@ from bs4 import BeautifulSoup
 import json
 import re
 import time
+from urllib import parse
+from random import randint
 
-list=[]
-headers = {
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.104 Safari/537.36 Core/1.53.4295.400 QQBrowser/9.7.12661.400'
-}
 
-for m in range(0,36,18):
-    url='https://www.airbnb.cn/api/v2/explore_tabs?version=1.4.5&satori_version=1.1.3&_format=for_explore_search_web&experiences_per_grid=20&items_per_grid=18&guidebooks_per_grid=20&auto_ib=true&fetch_filters=true&has_zero_guest_treatment=true&is_guided_search=true&is_new_cards_experiment=true&luxury_pre_launch=false&query_understanding_enabled=false&show_groupings=true&supports_for_you_v3=true&timezone_offset=480&client_session_id=c1dc98aa-5de6-422b-99eb-3ed164e09dc6&metadata_only=false&is_standard_search=true&refinement_paths[]=/homes&selected_tab_id=home_tab&click_referer=t:SEE_ALL|sid:29141e94-7a48-4a7e-a794-0b53c13c272d|st:MAGAZINE_HOMES&title_type=MAGAZINE_HOMES&allow_override[]=&s_tag=PAJAldIi&section_offset=6&items_offset={0}&screen_size=large&query=%E8%8B%8F%E5%B7%9E%E5%8C%97%E7%AB%99&_intents=p1&key=d306zoyjsyarp7ifhu67rjxn52tv0t20&currency=CNY&locale=zh'.format(m)
+class Airbnb:
 
-    url_json=requests.get(url,headers=headers).text
-    url_json=json.loads(url_json)
-    url_list=url_json['explore_tabs'][0]['home_tab_metadata']['remarketing_ids']
-    for url in url_list:
-        list.append(url)
+    def __init__(self,keyword):
+        self.keyword = parse.quote(keyword)
+        self.headers = {
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.104 Safari/537.36 Core/1.53.4295.400 QQBrowser/9.7.12661.400',
+        }
 
-for id in list:
-    url='https://www.airbnb.cn/rooms/{0}?location=%E8%8B%8F%E5%B7%9E%E5%8C%97%E7%AB%99&s=PAJAldIi&guests=1&adults=1'.format(id)
-    html=requests.get(url,headers=headers).text
-    key=re.findall(r"key:(.+?)}",html.replace('&quot;',''))[0]
-    id=re.findall(r"rooms/(\d+)?",url)[0]
-    nameurl='https://www.airbnb.cn/api/v2/pdp_listing_details/{0}?_format=for_rooms_show&adults=1&key={1}&'.format(id,key)
-    name = requests.get(nameurl, headers=headers).text
-    name = json.loads(name)
-    shopname=name['pdp_listing_detail']['name']
-    for number in range(0,100,7):
-        try:
-            url2='https://www.airbnb.cn/api/v2/reviews?key={0}&currency=CNY&locale=zh&listing_id={1}&role=guest&_format=for_p3&_limit=7&_offset={2}&_order=language_country'.format(key,id,number)
-            time.sleep(2)
-            html2=requests.get(url2,headers=headers).text
-            html2=json.loads(html2)
+    #获取所有房源
+    def get_house(self):
+        house_list = []
+        Flag = True
+        page = 0  #初始页
+        error_number = 0 # 错误记录
+        while Flag:
+            #抓包筛选参数 构造api
+            url = 'https://zh.airbnb.com/api/v2/explore_tabs?currency=CNY&experiences_per_grid=20&fetch_filters=true&guidebooks_per_grid=20&items_offset={1}&key=d306zoyjsyarp7ifhu67rjxn52tv0t20&query={0}&query_understanding_enabled=true&refinement_paths%5B%5D=%2Fhomes'.format(self.keyword,page)
             try:
-                comment_list=html2['reviews']
+                url_text = requests.get(url, headers=self.headers).text
+                url_json = json.loads(url_text)
+                total_sections = url_json['explore_tabs'][0]['sections']
+                total_lists = [n for m in total_sections if m['result_type'] == 'listings' for n in m['listings']]
+                #获取当页所有房源
+                for m in total_lists:
+                    house = {}
+                    house['price'] = m['pricing_quote']['rate']['amount'] #房屋价钱
+                    house['bathroom'] = m['listing']['bathrooms']  #卫生间数量
+                    house['bedroom'] = m['listing']['bedrooms']  # 卧室数量
+                    house['beds'] = m['listing']['beds']  # 床数量
+                    house['url'] = 'https://zh.airbnb.com/rooms/'+str(m['listing']['id'])  #房源url
+                    house['guests'] = m['listing']['guest_label']  # 最大入驻房客数量
+                    house['city'] = m['listing']['localized_city']  # 房源地区
+                    house['lat'] = m['listing']['lat']  # 房源纬度
+                    house['lng'] = m['listing']['lng']  # 房源经度
+                    house['name'] = m['listing']['name']  # 房源名称标题
+                    house['star'] = m['listing']['star_rating']  # 房源评分星级
+                    # house['name'] = m['listing']['name']  # 房源名称标题
+                    house['master'] = 'https://zh.airbnb.com/users/show/'+str(m['listing']['user']['id'])  # 房东个人主页
+                    house['name'] = [n['name'] for n in m['listing']['preview_tags']]  # 房源标签
+                    house['serive'] = m['listing']['preview_amenity_names']  # 房源提供
+                    house_list.append(house)
+                    print(house)
+                #切换页
+                if url_json['explore_tabs'][0]['pagination_metadata']['has_next_page'] == False:
+                    Flag = False
+                else:
+                    page = url_json['explore_tabs'][0]['pagination_metadata']['items_offset']
+                    time.sleep(randint(1,2))
+                error_number = 0 #成功访问一次便置零
             except:
-                time.sleep(2)
-                comment_list = html2['reviews']
-            for m in comment_list:
-                information={}
-                information['shop'] = shopname
-                information['username']=m['reviewer']['first_name']
-                information['comment']=m['comments']
-                information['time']=m['localized_date']
-                print(information)
-        except:
-            break
+                print('error:%s'% url)
+                error_number = +1
+                if error_number > 5: #连续request 5次错误 终止程序 避免死循环
+                    break
+
+    #获取房源下详细评论  待更新
+    def get_comment(self):
+        pass
+
+
+if __name__ == '__main__':
+    keyword = '上海'
+    Airbnb(keyword).get_house()
+
+
